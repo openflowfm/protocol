@@ -11,5 +11,20 @@
   "exports": {
     ".": "./index.ts",
     "./*": "./*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openflowfm/protocol.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2"
   }
 }
