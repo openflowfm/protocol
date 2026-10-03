@@ -304,3 +304,28 @@ the far side doesn't raise — it silently drops clips in the overlap.
 Copy-then-delete, because Live has no move. Every copy runs before any delete, so
 `failed > 0` means **nothing was deleted** and the set holds both copies: not what was
 asked for, but nothing lost.
+
+## `keepScenes`
+
+Tonight's show: put a chosen running order in place and delete every scene that isn't in
+it. Answered with `scenesKept`.
+
+**Not a variant of `move`.** A `MovePlan` creates exactly as many scenes as it deletes, and
+the bridge and `lom.ts` both refuse one that doesn't, because a drag that shrinks the set
+by a scene every time is the failure mode. A `KeepPlan` shrinks the set on purpose, so it
+has to be a message a caller can't reach by getting a move slightly wrong.
+
+It carries two checks in place of that one:
+
+- **`sceneCount`** is the set the plan was computed against. If Live holds a different
+  number of scenes, a scene was added or removed since the snapshot, every index is off,
+  and the plan is refused before anything runs.
+- **`keep`** is the size of the set afterwards, and must equal
+  `sceneCount + create.length - remove.length` and be at least 1. A plan that would empty
+  the set is refused.
+
+The phases are the move's: create blanks, copy the moved scenes into them, then delete in
+descending order. `remove` holds both the originals of moved scenes and every dropped
+scene; the dropped ones are never copied. **Every copy runs before any delete, and
+`failed > 0` skips the whole delete pass** — the set ends up with extra scenes, never
+missing ones. Like `move`, it is wrapped in one of Live's undo steps when Live allows.

@@ -868,6 +868,40 @@ declare namespace OpenFlow {
   }
 
   /**
+   * Put a chosen running order in place and **delete every scene not in it** —
+   * the "new show" workflow. `core/src/sceneMove.ts` (`planSceneKeep`) plans it.
+   *
+   * A message of its own rather than a looser `MovePlan`, because `MovePlan`'s
+   * one structural guarantee — it creates exactly as many scenes as it deletes —
+   * is what stops a drag shrinking the set. This plan breaks that on purpose, so
+   * it carries what the bridge needs to check it instead:
+   *
+   * - `sceneCount` is the set the plan was built against. The bridge refuses the
+   *   plan if Live holds a different number of scenes, because every index in it
+   *   is then wrong, and a wrong delete index is a deleted song.
+   * - `keep` is how many scenes the set holds afterwards. It must equal
+   *   `sceneCount + create.length - remove.length`, and be at least 1.
+   *
+   * The phases run like a move: create, copy, then delete. If any copy fails,
+   * **nothing is deleted** — neither the moved originals nor the dropped scenes —
+   * so a failure leaves extra scenes, never missing ones.
+   */
+  interface KeepPlan {
+    /** Scenes in the set when the plan was built. */
+    sceneCount: number;
+    /** Scene indexes to create blanks at, ascending. As `MovePlan.create`. */
+    create: number[];
+    steps: MoveStep[];
+    /**
+     * Post-insert indexes to delete, **descending**: the original of every
+     * moved scene, and every scene that isn't kept.
+     */
+    remove: number[];
+    /** Scenes left once the plan has run. */
+    keep: number;
+  }
+
+  /**
    * Add a contiguous run of blank scenes and give every one the same song
    * metadata. Unlike `MovePlan`, this is additive only: there is no copy pass
    * and no delete pass for a malformed request to stumble into.
@@ -1049,6 +1083,12 @@ declare namespace OpenFlow {
      * more optional field.
      */
     | { id?: number; type: 'move'; plan: MovePlan }
+    /**
+     * Reorder to a chosen running order and delete everything else. Not a
+     * variant of `move`: `move` can never shrink the set, and that has to stay
+     * true of it.
+     */
+    | { id?: number; type: 'keepScenes'; plan: KeepPlan }
     /**
      * Drag clips somewhere else. Not a variant of `move`: that one is about
      * scenes and renumbers the set, this one is about slots and doesn't.
@@ -1249,6 +1289,22 @@ declare namespace OpenFlow {
          */
         failed: number;
         /** Whether Live accepted `begin_undo_step` — see `bridge/LOM.md`. */
+        undoStep: boolean;
+      }
+    /**
+     * A `keepScenes` plan finished. The same counts as `moved`, but `failed`
+     * means something different: **non-zero means nothing was deleted**, so the
+     * set holds the new order's copies *and* every original, and the user has
+     * to tidy it in Live — but no scene was lost.
+     */
+    | {
+        type: 'scenesKept';
+        id?: number;
+        lomMs: number;
+        created: number;
+        copied: number;
+        removed: number;
+        failed: number;
         undoStep: boolean;
       }
     /**
