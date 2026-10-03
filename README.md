@@ -315,17 +315,31 @@ the bridge and `lom.ts` both refuse one that doesn't, because a drag that shrink
 by a scene every time is the failure mode. A `KeepPlan` shrinks the set on purpose, so it
 has to be a message a caller can't reach by getting a move slightly wrong.
 
-It carries two checks in place of that one:
+Before anything runs, the bridge checks the plan and refuses it — answering with `error`,
+and running nothing — unless every one of these holds:
 
-- **`sceneCount`** is the set the plan was computed against. If Live holds a different
-  number of scenes, a scene was added or removed since the snapshot, every index is off,
-  and the plan is refused before anything runs.
-- **`keep`** is the size of the set afterwards, and must equal
-  `sceneCount + create.length - remove.length` and be at least 1. A plan that would empty
-  the set is refused.
+- **`create`** is strictly ascending.
+- **`remove`** is unique, strictly descending, and each index is in
+  `0 … sceneCount + create.length - 1`.
+- Every **`steps[].to`** is a created blank, and no `remove` index is a created blank.
+- Every **`steps[].from`** is in `remove`.
+- `sceneCount + create.length - remove.length >= 1`: a plan that would empty the set is
+  refused.
+- **`sceneNames`** — the name of every scene in the set the plan was built against, in
+  index order, so `sceneNames.length === sceneCount` — matches Live's current scene names
+  exactly. A count check alone is not enough: a same-count rename or reorder since the
+  snapshot would shift every index and delete the wrong songs.
+
+There is no `keep` field to check: the size of the set afterwards follows from the other
+fields, so checking it would prove nothing.
 
 The phases are the move's: create blanks, copy the moved scenes into them, then delete in
 descending order. `remove` holds both the originals of moved scenes and every dropped
 scene; the dropped ones are never copied. **Every copy runs before any delete, and
-`failed > 0` skips the whole delete pass** — the set ends up with extra scenes, never
-missing ones. Like `move`, it is wrapped in one of Live's undo steps when Live allows.
+`failed > 0` skips the whole delete pass** — which also leaves the created blank scenes in
+the set, so it ends up with extra scenes, never missing ones.
+
+Undo works exactly as for `move`: the plan is grouped into one Live undo step when Live
+allows. The bridge does not refuse the plan when `begin_undo_step` is unavailable; that
+matches `move`, and `scenesKept.undoStep` tells the client, which warns that there is no
+undo.

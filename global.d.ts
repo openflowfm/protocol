@@ -874,17 +874,26 @@ declare namespace OpenFlow {
    * A message of its own rather than a looser `MovePlan`, because `MovePlan`'s
    * one structural guarantee — it creates exactly as many scenes as it deletes —
    * is what stops a drag shrinking the set. This plan breaks that on purpose, so
-   * it carries what the bridge needs to check it instead:
+   * it carries what the bridge needs to check it instead. The bridge refuses the
+   * plan — answering with `error`, and running nothing — unless all of these hold:
    *
-   * - `sceneCount` is the set the plan was built against. The bridge refuses the
-   *   plan if Live holds a different number of scenes, because every index in it
-   *   is then wrong, and a wrong delete index is a deleted song.
-   * - `keep` is how many scenes the set holds afterwards. It must equal
-   *   `sceneCount + create.length - remove.length`, and be at least 1.
+   * - `create` is strictly ascending.
+   * - `remove` is unique, strictly descending, and each index is in
+   *   `0 … sceneCount + create.length - 1`.
+   * - Every `steps[].to` is a created blank, and no `remove` index is a created
+   *   blank.
+   * - Every `steps[].from` is in `remove`.
+   * - `sceneCount + create.length - remove.length >= 1`.
+   * - `sceneNames` matches Live's current scene names exactly. A same-count
+   *   rename or reorder since the snapshot would otherwise delete the wrong songs.
    *
    * The phases run like a move: create, copy, then delete. If any copy fails,
-   * **nothing is deleted** — neither the moved originals nor the dropped scenes —
-   * so a failure leaves extra scenes, never missing ones.
+   * **nothing is deleted** — neither the moved originals, the dropped scenes nor
+   * the created blanks — so a failure leaves extra scenes, never missing ones.
+   *
+   * Undo works exactly as for `move`: one Live undo step when Live allows. The
+   * plan is not refused when `begin_undo_step` is unavailable; `undoStep` on the
+   * reply says so.
    */
   interface KeepPlan {
     /** Scenes in the set when the plan was built. */
@@ -897,8 +906,12 @@ declare namespace OpenFlow {
      * moved scene, and every scene that isn't kept.
      */
     remove: number[];
-    /** Scenes left once the plan has run. */
-    keep: number;
+    /**
+     * The name of every scene in the set the plan was built against, in index
+     * order, so `sceneNames.length === sceneCount`. Refused unless Live's
+     * current names match exactly.
+     */
+    sceneNames: string[];
   }
 
   /**
@@ -1294,7 +1307,7 @@ declare namespace OpenFlow {
     /**
      * A `keepScenes` plan finished. The same counts as `moved`, but `failed`
      * means something different: **non-zero means nothing was deleted**, so the
-     * set holds the new order's copies *and* every original, and the user has
+     * set holds the new order's copies, the created blanks *and* every original, and the user has
      * to tidy it in Live — but no scene was lost.
      */
     | {
