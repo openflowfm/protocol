@@ -6,7 +6,76 @@ runtime code beyond two constants.
 ```
 global.d.ts    the source of truth: a global `OpenFlow` namespace
 index.ts       module re-exports for consumers that can use imports
+               (compiled to dist/ for the published package)
 ```
+
+## Install
+
+```sh
+npm install @openflow/protocol
+```
+
+Module consumers import named types and the two constants from the package root:
+
+```ts
+import { WS_PATH, DEFAULT_PORT, type Request, type Event } from '@openflow/protocol';
+```
+
+Importing the module also brings the global `OpenFlow` namespace into scope. Code
+that can't `import` (scripts such as `bridge/src/lom.ts`) includes the declaration
+file directly in its tsconfig, as before:
+
+```json
+{ "include": ["src/**/*.ts", "node_modules/@openflow/protocol/global.d.ts"] }
+```
+
+`@openflow/protocol/index.ts` still resolves, to the same compiled module, so
+existing imports keep working. It is **deprecated**: import from
+`@openflow/protocol` instead.
+
+## Releasing
+
+Releases are automated with [Changesets](https://changesets.dev) and
+`.github/workflows/release.yml`.
+
+1. In any PR that changes what consumers get, run `npx changeset`, pick the bump
+   (patch / minor / major) and describe the change. Commit the generated file in
+   `.changeset/`.
+2. When that PR merges, the Release workflow opens (or updates) a **Version
+   packages** PR that bumps `package.json` and writes `CHANGELOG.md`.
+3. Merging the Version packages PR publishes to npm with provenance, using npm
+   trusted publishing (OIDC, no `NPM_TOKEN`), tags the release on GitHub, then
+   sends a `repository_dispatch` (`event_type: renovate`) to
+   `openflowfm/renovate` so consumers get their update PRs straight away.
+
+PRs opened by the workflow's `GITHUB_TOKEN` don't trigger CI; the Version
+packages PR only touches the version and changelog, and the Release workflow
+re-runs typecheck, build and tests before publishing.
+
+### One-time setup (owner, by hand)
+
+Do these in order, before merging the first Version packages PR:
+
+1. **npm org.** Create the `openflow` organisation on npmjs.com if it doesn't
+   exist, so the `@openflow` scope is yours.
+2. **First publish by hand.** Trusted publishers can only be configured on a
+   package that already exists. From a clean checkout of `main`:
+   `npm ci && npm login && npm publish --access public --tag next --provenance=false`
+   This publishes the current pre-release (`0.1.0-rc.4`) under the `next` tag, so
+   it never becomes `latest`. (`--provenance=false` because provenance needs CI.)
+3. **Trusted publisher.** On npmjs.com, package `@openflow/protocol` > Settings >
+   Trusted publishing > GitHub Actions: organisation `openflowfm`, repository
+   `protocol`, workflow `release.yml`, no environment. Optionally then set
+   "Publishing access" to require 2FA and disallow tokens.
+4. **Actions permissions.** In the repo's Settings > Actions > General, enable
+   "Allow GitHub Actions to create and approve pull requests" (the Version
+   packages PR needs it).
+5. **Renovate dispatch secret.** Add a repository secret
+   `RENOVATE_DISPATCH_TOKEN`: a fine-grained token with Contents read/write on
+   `openflowfm/renovate` (what `repository_dispatch` requires). Without it the
+   notify step is skipped and Renovate picks the release up on its schedule.
+
+Then merge the Version packages PR: the workflow publishes `0.1.0` as `latest`.
 
 ## Why a global namespace and not a module
 
@@ -19,7 +88,7 @@ A `.d.ts` with a top-level `declare namespace` is ambient and costs nothing to
 include, so `lom.ts` gets the types for free — and so does everything else: every
 module that speaks the wire protocol includes `global.d.ts` and uses the namespace
 directly. `index.ts` re-exports the same types as ordinary imports, via
-`@openflow/protocol/index.ts`, for consumers that prefer them named.
+`@openflow/protocol`, for consumers that prefer them named.
 
 **One definition, three consumption styles.** Don't add a second copy.
 

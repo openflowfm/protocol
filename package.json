@@ -1,29 +1,49 @@
 {
   "name": "@openflow/protocol",
   "version": "0.1.0-rc.4",
-  "private": true,
   "type": "module",
   "description": "The wire protocol between the bridge and its clients, declared once as a global namespace.",
   "files": [
-    "index.ts",
+    "dist/index.js",
+    "dist/index.d.ts",
     "global.d.ts"
   ],
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./index.ts",
-    "./*": "./*"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./index.ts": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./global.d.ts": "./global.d.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openflowfm/protocol.git"
   },
+  "homepage": "https://github.com/openflowfm/protocol#readme",
+  "bugs": "https://github.com/openflowfm/protocol/issues",
   "license": "MIT",
   "engines": {
     "node": ">=26"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsc -p test/tsconfig.json && node --test \"test/*.test.ts\"",
+    "prepack": "npm run build",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^26.4.1",
     "typescript": "^7.0.2"
   }
