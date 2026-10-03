@@ -1,3 +1,7 @@
+/// <reference path="./global.d.ts" preserve="true" />
+// `preserve` keeps this reference into dist/index.d.ts, so importing this module
+// also brings the global `OpenFlow` namespace into scope.
+//
 // Module re-exports of the global OpenFlow namespace, for consumers that can use
 // normal imports (set/, core/). See global.d.ts for why the source of truth is
 // a global namespace.
