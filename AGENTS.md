@@ -27,6 +27,9 @@ There is no watcher; the build is a single `tsc` run.
   changeset: `npx changeset`, commit the file under `.changeset/`.
 - Never run `npm publish` or bump `version` by hand. The Release workflow does
   both (see README > Releasing).
+- Versioning below 1.0: breaking change = **minor**, features and fixes =
+  **patch** (matches npm `^0.x` ranges). No `-rc`/prerelease versions during
+  0.x. 1.0.0 is the first release meant for other people.
 - `RENOVATE_DISPATCH_TOKEN` and the `renovate` dispatch event type are a shared
   contract with `openflowfm/renovate`; don't rename them.
 - `dist/` is build output and gitignored.

@@ -1,5 +1,7 @@
 # protocol/
 
+Pre-1.0: unstable and in active development; expect breaking changes.
+
 The WebSocket wire protocol between the browser and the bridge. Types only — no
 runtime code beyond two constants.
 
@@ -51,6 +53,13 @@ Releases are automated with [Changesets](https://changesets.dev) and
 PRs opened by the workflow's `GITHUB_TOKEN` don't trigger CI; the Version
 packages PR only touches the version and changelog, and the Release workflow
 re-runs typecheck, build and tests before publishing.
+
+### Versioning
+
+Below 1.0, a breaking change is a **minor** bump and features and fixes are a
+**patch** bump (this matches how npm `^0.x` ranges work). No `-rc` or other
+prerelease versions during 0.x. 1.0.0 is the first release meant for other
+people.
 
 ### One-time setup (owner, by hand)
 
