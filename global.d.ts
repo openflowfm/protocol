@@ -782,11 +782,25 @@ declare namespace OpenFlow {
     peakDb: number;
   }
 
+  /** One probe in the set, as the `probes` event lists it. */
+  interface ProbeEntry {
+    /**
+     * The probe's own identity: a random string the device makes when it
+     * loads and stores in the set. **Not a LOM id** — Live's objects are still
+     * never addressed by id — and stable across moves, saves and reloads.
+     */
+    key: string;
+    /** Where it sits now. Changes when it, or anything before it, moves. */
+    target: DeviceTarget;
+    /** `Device.name`, which the user can change to tell probes apart. */
+    name: string;
+  }
+
   /**
    * Everything a probe has heard since its listening window started.
    *
    * **Cumulative, never a delta.** Every push describes the whole window from
-   * `probeListen { on: true }` until now, so a client that missed one has lost
+   * the `probeListen { on: true }` that started its pass until now, so a client that missed one has lost
    * nothing and the last one it holds is always the best answer. That is also
    * why the window resets only on `on: true`: a running total that something
    * else could quietly restart would be a number nobody could trust.
@@ -839,9 +853,10 @@ declare namespace OpenFlow {
     /**
      * Samples at or above full scale (|x| ≥ 1.0), counted per channel and
      * summed. A count, not a flag, so a client can tell one stray over from a
-     * limiter pinned against the ceiling.
+     * limiter pinned against the ceiling. "Over" rather than "clipped"
+     * because a clip is something else entirely in Live (AGENTS rule 7).
      */
-    clippedSamples: number;
+    overSamples: number;
     /**
      * Linear mean of the samples over the window, both channels averaged:
      * -1..1, where 0 is no DC offset at all.
@@ -1158,16 +1173,15 @@ declare namespace OpenFlow {
    * "Chrome" for a client that calls itself set[flow], and the two Node clients
    * have none at all.
    *
-   * **A name the device does not know is not an error.** `tools/diag.ts`, a
-   * curious browser and a client built after this list was written all count
-   * toward the "more" line instead of taking a row. Adding a kind here means
-   * adding a row to the device face in `tools/build-device.ts`; nothing else
-   * reads it.
-   *
-   * `mastering` is master[flow], named for the activity rather than the app
-   * because "master" alone already means Live's Master track.
+   * **A stable key, not a closed list.** The client tells the bridge who it
+   * is, so a new app needs no protocol change and no bridge release to appear
+   * on the device's face. Known keys today: `set` (set[flow]), `visual`
+   * (visual[flow]), `chart` (chart[flow]) and `mastering` (master[flow] —
+   * named for the activity, because "master" alone is Live's Master track).
+   * A key the bridge has never seen is not an error; it takes a row like any
+   * other, under the `name` the client sent, or the key itself without one.
    */
-  type ClientKind = 'set' | 'visual' | 'chart' | 'mastering';
+  type ClientKind = string;
 
 
   // `launch`, `stop`, `selectScene`, `setFold`, `setTransport`, `setMixer`, `setDevice`,
@@ -1327,6 +1341,11 @@ declare namespace OpenFlow {
      * it needs the index Live actually gave it; waiting for a `chainState` and
      * picking the newcomer out by class name breaks as soon as a run holds two
      * of the same device.
+     *
+     * An `at` beyond the end of the run (greater than its device count) is
+     * **refused with `error`, not clamped**: an index that far out means the
+     * client's picture of the run is stale, and appending anyway would put the
+     * device somewhere the client didn't ask for.
      */
     | { id?: number; type: 'insertDevice'; run: DeviceRun; name: string; at?: number }
     /**
@@ -1342,7 +1361,11 @@ declare namespace OpenFlow {
     /**
      * Move one device, via `Song.move_device`, to index `at` in the run `to`
      * — within the same run or into another, on the same track or not. `at` is
-     * the index the device should have once the move is done. Guarded by
+     * the index the device should have **once the move is done**. Within the
+     * same run that is counted after the device has left its old place: moving
+     * the device at 0 of three to the end is `at: 2`, not `at: 3`. An `at`
+     * beyond the end of the destination run is refused, as for `insertDevice`.
+     * Guarded by
      * `className` exactly as `deleteDevice` is, for the same reason. Answered
      * by `deviceMoved` with where it actually landed: Live can refuse a move
      * (an audio effect ahead of an instrument, say), and the bridge answers
@@ -1372,23 +1395,37 @@ declare namespace OpenFlow {
      */
     | { id?: number; type: 'paramText'; target: DeviceTarget; p: number; values: number[] }
     /**
-     * Start or stop listening on some probes.
+     * Start or stop listening on some probes, named by their `key` from
+     * `probes`.
      *
-     * `on: true` **resets** each probe's window and starts accumulating; while
-     * listening it pushes a `probeReport` about once a second. `on: false`
-     * stops it and sends one last report with `final: true`. A client awaits
-     * the end of a pass by waiting for the final report of every target it
-     * named, so there is no separate reply.
+     * Keys rather than positions because a pass lasts as long as the audio
+     * does, and the user can drag a probe along the chain in the meantime. The
+     * key is the probe's own — a random string the device makes when it loads
+     * and keeps in the set — **not a LOM id**, so the rule that Live's objects
+     * are addressed by position and never by id still holds.
+     *
+     * `on: true` **resets** the named probes' windows and starts a new
+     * **pass**, with a number the bridge assigns, announced by the reply
+     * `probeListening`. While listening each probe pushes a `probeReport`
+     * about once a second, every one carrying that `pass`. `on: false` stops
+     * them and sends one last report each with `final: true`; there is no
+     * separate reply, so a client awaits the end of its pass by waiting for
+     * those final reports.
      *
      * A listening probe is one window shared by every client, like every other
-     * watch here, and its reports are broadcast: a second client that turns on
-     * a probe already listening restarts the window for everybody. That is the
+     * watch here, and its reports are broadcast. So **another client's `on:
+     * true` on the same probe ends your pass**: the window restarts under a new
+     * pass number, and your reports simply stop. A client ignores every report
+     * whose `pass` isn't its own, which is what stops it from reading someone
+     * else's half-second of audio as the end of its own album. That is the
      * honest version — the probe hears one signal, and two overlapping windows
      * would be two devices' worth of work for a question nobody has asked.
      *
-     * A target that is not a probe is refused with `error`.
+     * A pass's final reports arrive **for the probes still present** when it
+     * stops; a probe deleted mid-pass sends nothing more, and `probes` has
+     * already said it is gone. An unknown key is refused with `error`.
      */
-    | { id?: number; type: 'probeListen'; targets: DeviceTarget[]; on: boolean }
+    | { id?: number; type: 'probeListen'; keys: string[]; on: boolean }
     | { id?: number; type: 'watchPlay'; on: boolean }
     | { id?: number; type: 'watchMeters'; on: boolean }
     /**
@@ -1424,7 +1461,19 @@ declare namespace OpenFlow {
      */
     | { id?: number; type: 'clipNotes'; clips: Array<{ t: number; s: number }> }
     /**
-     * Say which app this is, for the device's face. Send it first, once.
+     * Tell the bridge who you are, for the device's face. Send it first, once.
+     *
+     * `client` is a stable key (`'set'`, `'mastering'`, see `ClientKind`);
+     * `name` is how to show it (`'master[flow]'`) and `version` is shown
+     * beside it. Both are optional so a client that sends only `{ client:
+     * 'set' }` stays valid; without a `name` the bridge falls back to the
+     * display name it knows for that key, or the key itself.
+     *
+     * **The roster shows whoever identified**, one row per key, in the order
+     * each key was first seen. A row that disconnects goes dark rather than
+     * letting the rows below move up, so an app doesn't wander round the face
+     * as others come and go. This replaces the fixed rows the device draws
+     * today; adding an app needs no protocol or bridge change.
      *
      * No reply, and nothing downstream depends on it: a client that never sends
      * it is served exactly the same as one that does, and only the roster on
@@ -1432,7 +1481,7 @@ declare namespace OpenFlow {
      * is that a client connecting changes nothing about what the device knows,
      * and an identity the device *needed* would be the first crack in that.
      */
-    | { id?: number; type: 'identify'; client: ClientKind }
+    | { id?: number; type: 'identify'; client: ClientKind; name?: string; version?: string }
     | { id?: number; type: 'ping' };
 
   type RequestType = Request['type'];
@@ -1588,17 +1637,34 @@ declare namespace OpenFlow {
      * a client never has to walk the set to find one. `name` is `Device.name`,
      * which the user can change to tell several probes apart.
      *
-     * A probe is addressed by position like any other device, so a move in
-     * Live changes its `target`: a client holding one re-reads it from here.
+     * `key` is the probe's own identity (see `probeListen`) and survives a
+     * move; `target` is where it sits now, for the chain edits that address a
+     * device by position, and changes whenever anything before it in the run
+     * does.
      */
-    | { type: 'probes'; probes: Array<{ target: DeviceTarget; name: string }> }
+    | { type: 'probes'; probes: ProbeEntry[] }
     /**
-     * What one probe has heard. Broadcast about once a second while it listens,
-     * then once more with `final: true` when `probeListen { on: false }` stops
-     * it. No `id`: these are a watch's pushes, not replies, and every client
-     * gets them. See `ProbeReport`.
+     * Reply to `probeListen { on: true }`: the pass that just started and the
+     * keys of the probes listening in it. The client keeps `pass` and reads
+     * only reports that carry it.
      */
-    | { type: 'probeReport'; target: DeviceTarget; final: boolean; report: ProbeReport }
+    | { type: 'probeListening'; id?: number; pass: number; probes: string[] }
+    /**
+     * What one probe has heard in one pass. Broadcast about once a second while
+     * it listens, then once more with `final: true` when `probeListen { on:
+     * false }` stops it. No `id`: these are a watch's pushes, not replies, and
+     * every client gets them, so **a client drops every report whose `pass`
+     * isn't the one its `probeListening` gave it**. `target` is where the
+     * probe sits as of this report. See `ProbeReport`.
+     */
+    | {
+        type: 'probeReport';
+        pass: number;
+        key: string;
+        target: DeviceTarget;
+        final: boolean;
+        report: ProbeReport;
+      }
     | {
         type: 'songPosition';
         /** First three fields of Live's bars.beats.sixteenths.ticks value. */

@@ -31,6 +31,7 @@ export type DevicePatch = OpenFlow.DevicePatch;
 export type DeviceRun = OpenFlow.DeviceRun;
 export type ProbeReport = OpenFlow.ProbeReport;
 export type ProbeBand = OpenFlow.ProbeBand;
+export type ProbeEntry = OpenFlow.ProbeEntry;
 export type ClientKind = OpenFlow.ClientKind;
 export type ApplyResult = OpenFlow.ApplyResult;
 export type Request = OpenFlow.Request;
