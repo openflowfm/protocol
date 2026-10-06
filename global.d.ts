@@ -800,8 +800,9 @@ declare namespace OpenFlow {
    * Everything a probe has heard since its listening window started.
    *
    * **Cumulative, never a delta.** Every push describes the whole window from
-   * the `probeListen { on: true }` that started its pass until now, so a client that missed one has lost
-   * nothing and the last one it holds is always the best answer. That is also
+   * the `probeListen { on: true }` that started its pass until now, so a
+   * client that missed one has lost nothing and the last one it holds is
+   * always the best answer. That is also
    * why the window resets only on `on: true`: a running total that something
    * else could quietly restart would be a number nobody could trust.
    *
@@ -1395,8 +1396,7 @@ declare namespace OpenFlow {
      */
     | { id?: number; type: 'paramText'; target: DeviceTarget; p: number; values: number[] }
     /**
-     * Start or stop listening on some probes, named by their `key` from
-     * `probes`.
+     * Start a pass on some probes, named by their `key` from `probes`.
      *
      * Keys rather than positions because a pass lasts as long as the audio
      * does, and the user can drag a probe along the chain in the meantime. The
@@ -1404,28 +1404,34 @@ declare namespace OpenFlow {
      * and keeps in the set — **not a LOM id**, so the rule that Live's objects
      * are addressed by position and never by id still holds.
      *
-     * `on: true` **resets** the named probes' windows and starts a new
-     * **pass**, with a number the bridge assigns, announced by the reply
-     * `probeListening`. While listening each probe pushes a `probeReport`
-     * about once a second, every one carrying that `pass`. `on: false` stops
-     * them and sends one last report each with `final: true`; there is no
-     * separate reply, so a client awaits the end of its pass by waiting for
-     * those final reports.
+     * **Resets** the named probes' windows and starts a new **pass**, with a
+     * number the bridge assigns. The requester gets it in the reply
+     * `probeListening`; every client hears `probePass { on: true }`. While the
+     * pass runs, each probe pushes a `probeReport` about once a second, every
+     * one carrying that `pass`.
      *
      * A listening probe is one window shared by every client, like every other
-     * watch here, and its reports are broadcast. So **another client's `on:
-     * true` on the same probe ends your pass**: the window restarts under a new
-     * pass number, and your reports simply stop. A client ignores every report
-     * whose `pass` isn't its own, which is what stops it from reading someone
-     * else's half-second of audio as the end of its own album. That is the
-     * honest version — the probe hears one signal, and two overlapping windows
-     * would be two devices' worth of work for a question nobody has asked.
+     * watch here, and its reports are broadcast. So **another client's start
+     * on any probe in your pass ends your pass** — all of it, not just that
+     * probe — and the window restarts under a new number. A client ignores
+     * every report whose `pass` isn't its own, which is what stops it from
+     * reading someone else's half-second of audio as the end of its own album.
+     * That is the honest version — the probe hears one signal, and two
+     * overlapping windows would be two devices' worth of work for a question
+     * nobody has asked.
      *
-     * A pass's final reports arrive **for the probes still present** when it
-     * stops; a probe deleted mid-pass sends nothing more, and `probes` has
-     * already said it is gone. An unknown key is refused with `error`.
+     * An unknown key is refused with `error`.
      */
-    | { id?: number; type: 'probeListen'; keys: string[]; on: boolean }
+    | { id?: number; type: 'probeListen'; on: true; keys: string[] }
+    /**
+     * Stop a pass, **named by its number**. The bridge ignores a stop for any
+     * pass that isn't current, so a client whose pass was already ended by
+     * someone else's restart can't end theirs with a stale stop.
+     *
+     * No reply of its own: the end of a pass is the broadcast `probePass {
+     * on: false }`, which is the same signal whatever ended it.
+     */
+    | { id?: number; type: 'probeListen'; on: false; pass: number }
     | { id?: number; type: 'watchPlay'; on: boolean }
     | { id?: number; type: 'watchMeters'; on: boolean }
     /**
@@ -1646,13 +1652,31 @@ declare namespace OpenFlow {
     /**
      * Reply to `probeListen { on: true }`: the pass that just started and the
      * keys of the probes listening in it. The client keeps `pass` and reads
-     * only reports that carry it.
+     * only reports that carry it. The direct answer, so the requester learns
+     * its number without having to guess which `probePass` was its own.
      */
     | { type: 'probeListening'; id?: number; pass: number; probes: string[] }
     /**
+     * A pass started or ended, broadcast to every client.
+     *
+     * `on: true` when a `probeListen` starts one. `on: false` when it ends,
+     * **whatever ended it**: a stop naming it, another client's restart of any
+     * of its probes, or every probe in it going away. A client knows its pass
+     * is over when it sees `probePass { pass: <its own>, on: false }`, and only
+     * then — waiting on final reports alone would hang forever on a pass that
+     * a restart or a deleted probe ended.
+     *
+     * The pass's final `probeReport`s, one for each of its probes still
+     * present, **arrive before this event**, so by the time a client sees it
+     * the last numbers are already in hand. `keys` is the probes in the pass:
+     * all of them when it starts, the ones that sent a final report when it
+     * ends.
+     */
+    | { type: 'probePass'; pass: number; on: boolean; keys: string[] }
+    /**
      * What one probe has heard in one pass. Broadcast about once a second while
-     * it listens, then once more with `final: true` when `probeListen { on:
-     * false }` stops it. No `id`: these are a watch's pushes, not replies, and
+     * it listens, then once more with `final: true` when the pass ends, just
+     * before `probePass { on: false }`. No `id`: these are a watch's pushes, not replies, and
      * every client gets them, so **a client drops every report whose `pass`
      * isn't the one its `probeListening` gave it**. `target` is where the
      * probe sits as of this report. See `ProbeReport`.

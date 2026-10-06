@@ -148,7 +148,7 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `deleteDevice` `{ target, className }` | delete one device; refused unless the class still matches |
 | `moveDevice` `{ target, className, to, at }` | move one device within or between runs; same guard |
 | `paramText` `{ target, p, values }` | Live's text for up to 64 values of one control, writing nothing |
-| `probeListen` `{ keys, on }` | start a new pass on some probes, or stop it |
+| `probeListen` `{ on: true, keys }` / `{ on: false, pass }` | start a new pass on some probes, or stop one by number |
 | `devices` `{ t }` | read one track's device chain — shells only. A read rather than a watch; see the type's own note |
 | `clipNotes` `{ clips }` | the notes of some clips — a **read**, like `devices` |
 | `identify` `{ client, name?, version? }` | who this client is, for the roster on the device's face |
@@ -184,6 +184,7 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `deviceState` | — restored or changed set-owned configuration |
 | `probes` | — every probe in the set; on connect and whenever one appears, disappears or moves |
 | `probeReport` | — a listening probe's cumulative report for one `pass`, about once a second, then once with `final: true` |
+| `probePass` | — a pass started or ended (by a stop, a restart, or its probes going away); after its final reports |
 | `error` | — terminates any pending request, or is broadcast |
 
 The socket lives at **`/ws`**, not `/`, so Vite can proxy it in dev without colliding
@@ -491,15 +492,21 @@ worked out there, inside Live, because the samples are there and nowhere else.
   position, never by id — but it survives the user dragging the probe mid-pass, which a
   position does not. `probeListen` names probes by key; `target` is there for the chain
   edits.
-- `probeListen { on: true }` resets the named probes and starts a new **pass**, whose
-  bridge-assigned number comes back in `probeListening`. While listening each probe
-  pushes a **cumulative** `probeReport` about once a second, carrying `pass`, `key` and
-  its current `target`. `on: false` stops them and sends one last report each with
-  `final: true`, for the probes still present; that is how a client knows a pass is over.
+- `probeListen { on: true, keys }` resets the named probes and starts a new **pass**,
+  whose bridge-assigned number comes back to the requester in `probeListening`. While it
+  runs each probe pushes a **cumulative** `probeReport` about once a second, carrying
+  `pass`, `key` and its current `target`.
+- `probeListen { on: false, pass }` stops a pass **by number**. A stop for a pass that
+  isn't current is ignored, so a stale stop can't end someone else's pass.
+- **`probePass { pass, on, keys }` is broadcast when a pass starts and when it ends**,
+  whatever ended it: a stop, another client's restart of any of its probes, or every
+  probe in it going away. The final `probeReport`s (`final: true`, one per probe still
+  present) arrive **before** `probePass { on: false }`, so a client knows its pass is
+  over, with the last numbers in hand, when it sees that event with its own `pass`.
 - One window per probe, shared by every client, with broadcast reports, like the other
-  watches. **Another client's `on: true` on the same probe ends your pass**: the window
-  restarts under a new pass number. A client therefore drops every report whose `pass`
-  is not its own, rather than reading someone else's first second of audio as its result.
+  watches. **Another client's start on any probe in your pass ends your pass.** A client
+  therefore drops every report whose `pass` is not its own, rather than reading someone
+  else's first second of audio as its result.
 
 `ProbeReport` follows ITU-R BS.1770 / EBU R128: integrated and short-term-max loudness
 (LUFS) and loudness range (LU), each **null until there is enough gated audio** rather
