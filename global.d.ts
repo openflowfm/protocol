@@ -1163,8 +1163,11 @@ declare namespace OpenFlow {
    * toward the "more" line instead of taking a row. Adding a kind here means
    * adding a row to the device face in `tools/build-device.ts`; nothing else
    * reads it.
+   *
+   * `mastering` is master[flow], named for the activity rather than the app
+   * because "master" alone already means Live's Master track.
    */
-  type ClientKind = 'set' | 'visual' | 'chart';
+  type ClientKind = 'set' | 'visual' | 'chart' | 'mastering';
 
 
   // `launch`, `stop`, `selectScene`, `setFold`, `setTransport`, `setMixer`, `setDevice`,

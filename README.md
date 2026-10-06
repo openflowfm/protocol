@@ -338,8 +338,8 @@ while its footer is open; this watcher is never off, because the grid never clos
 
 ## `identify`
 
-The one message that changes nothing. A client says which app it is — `set`, `visual` or
-`chart` — and the device lights that row on its face; everything else about how it is
+The one message that changes nothing. A client says which app it is — `set`, `visual`,
+`chart` or `mastering` — and the device lights that row on its face; everything else about how it is
 served is identical whether it sent this or not.
 
 **That is the point rather than an omission.** Rule 5 is that a client connecting,
