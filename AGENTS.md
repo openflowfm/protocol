@@ -6,7 +6,7 @@ in `.nvmrc`. Read the README before changing a message.
 
 ## Checks
 
-Run `npm ci` once per worktree. Each check is quick; run each once, in this
+Run `npm ci` once per worktree (its `prepare` script builds `dist/`). Each check is quick; run each once, in this
 order, after your last edit. CI (`.github/workflows/ci.yml`) runs the same list
 on every push and PR.
 
