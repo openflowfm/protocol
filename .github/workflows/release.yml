@@ -27,7 +27,6 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
       - run: npm test
 
       # With pending changesets: opens or updates the "Version packages" PR.
