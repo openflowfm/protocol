@@ -747,6 +747,120 @@ declare namespace OpenFlow {
     param?: { p: number; value: number };
   }
 
+  /**
+   * One device run, addressed the way `ChainWatch` addresses it: a track and
+   * the rack path into it. A `DeviceTarget` without the `i`, for the messages
+   * that name a run rather than a device in it — where to insert, and where a
+   * moved device should go.
+   */
+  interface DeviceRun {
+    t: number;
+    /** Pairs, exactly as in `ChainWatch.path`. `[]` is the track's own run. */
+    path: number[];
+  }
+
+  /**
+   * One ISO 1/3-octave band in a `ProbeReport`. All three levels are dBFS of
+   * the band-filtered signal over the whole listening window.
+   *
+   * Three numbers rather than one because a mean alone can't tell a band that
+   * is always moderately loud from one that is silent most of the time and
+   * very loud in bursts, and those want opposite treatment: the first is
+   * tonal balance an EQ should touch, the second is dynamics it should not.
+   */
+  interface ProbeBand {
+    /** Nominal centre frequency in Hz: 20, 25, 31.5, 40 … 16000, 20000. */
+    hz: number;
+    /** Power mean of the band's level over the window, in dBFS. */
+    meanDb: number;
+    /**
+     * ~10th percentile of the band's short-time level, in dBFS: a noise-floor
+     * estimate. What the band sits at between notes, hiss and hum included.
+     */
+    floorDb: number;
+    /** ~95th percentile of the band's short-time level, in dBFS. */
+    peakDb: number;
+  }
+
+  /**
+   * Everything a probe has heard since its listening window started.
+   *
+   * **Cumulative, never a delta.** Every push describes the whole window from
+   * `probeListen { on: true }` until now, so a client that missed one has lost
+   * nothing and the last one it holds is always the best answer. That is also
+   * why the window resets only on `on: true`: a running total that something
+   * else could quietly restart would be a number nobody could trust.
+   *
+   * Computed inside Live, in the probe device, because the samples are there
+   * and nowhere else; shipping audio over the socket to work this out in a
+   * client would be the chatty design at its absolute worst.
+   *
+   * A probe hears the signal **at its position in the chain**: after the
+   * devices before it, before the ones after it and before the track's volume
+   * and pan. Stereo throughout; a mono source arrives as two equal channels.
+   *
+   * Levels never go to `-Infinity`, which JSON can't carry: every dB field is
+   * clamped at **-150**, below anything a 24-bit signal can hold, so -150 reads
+   * as digital silence.
+   */
+  interface ProbeReport {
+    /** Length of the window so far, in seconds of audio heard. */
+    seconds: number;
+    /** Live's sample rate while listening, in Hz. */
+    sampleRate: number;
+    /**
+     * Integrated loudness in LUFS, ITU-R BS.1770 with the EBU R128 absolute
+     * (-70 LUFS) and relative (-10 LU) gates. **Null until a gated 400 ms block
+     * exists** — not a plausible number, because a client setting gain from
+     * this would act on it.
+     */
+    lufsIntegrated: number | null;
+    /**
+     * Highest short-term (3 s window) loudness so far, in LUFS. Null until the
+     * first 3 s window is complete.
+     */
+    lufsShortTermMax: number | null;
+    /**
+     * Loudness range in LU, EBU Tech 3342: the spread between the 10th and
+     * 95th percentiles of gated short-term loudness. Null until enough gated
+     * short-term blocks exist for the percentiles to mean anything.
+     */
+    loudnessRange: number | null;
+    /**
+     * True peak in dBTP, 4× oversampled per BS.1770 Annex 2, the higher of the
+     * two channels. Above `samplePeakDb` whenever inter-sample peaks exist,
+     * which is the whole reason it is here.
+     */
+    truePeakDb: number;
+    /** Highest absolute sample value in dBFS, either channel. */
+    samplePeakDb: number;
+    /** RMS level of both channels together over the window, in dBFS. */
+    rmsDb: number;
+    /**
+     * Samples at or above full scale (|x| ≥ 1.0), counted per channel and
+     * summed. A count, not a flag, so a client can tell one stray over from a
+     * limiter pinned against the ceiling.
+     */
+    clippedSamples: number;
+    /**
+     * Linear mean of the samples over the window, both channels averaged:
+     * -1..1, where 0 is no DC offset at all.
+     */
+    dcOffset: number;
+    /**
+     * Pearson correlation between left and right over the window, -1..1. 1 is
+     * mono, 0 unrelated channels, below 0 the phase trouble that vanishes when
+     * the mix is summed to mono. A silent window reports 1.
+     */
+    correlation: number;
+    /**
+     * The 31 ISO 1/3-octave bands from 20 Hz to 20 kHz, lowest first, always
+     * all 31. Computed on the mid signal, (L + R) / 2, because tonal balance
+     * is a property of what both speakers play together.
+     */
+    bands: ProbeBand[];
+  }
+
   /** Live's set-wide control-bar state, observed and pushed as one unit. */
   interface TransportState {
     /** Song.tempo, 20–999 BPM. May move under Arrangement automation. */
@@ -1194,6 +1308,84 @@ declare namespace OpenFlow {
      * never assume, that what it asked for is all that is being watched.
      */
     | { id?: number; type: 'watchChains'; subs: ChainWatch[] }
+    /**
+     * Put one of Live's built-in devices into a run, via `Track.insert_device`
+     * or `Chain.insert_device` (Live 12.4+). `name` is the name Live shows in
+     * its browser, e.g. `"EQ Eight"`, `"Glue Compressor"`, `"Limiter"`; `at` is
+     * its index in the run, the end when absent.
+     *
+     * **Built-in devices only.** Live's API inserts by device name and nothing
+     * else: plugins, presets, racks saved from the browser and Max for Live
+     * devices cannot be inserted this way, and the bridge answers `error`
+     * rather than guessing at a near match.
+     *
+     * **Answered by `deviceInserted`, not by the watch** — unlike `setDevice`.
+     * The caller's next move is to write the device it just made, and for that
+     * it needs the index Live actually gave it; waiting for a `chainState` and
+     * picking the newcomer out by class name breaks as soon as a run holds two
+     * of the same device.
+     */
+    | { id?: number; type: 'insertDevice'; run: DeviceRun; name: string; at?: number }
+    /**
+     * Delete one device. **Refused unless the device at `target` has this
+     * `className`.** Positions shift with every insert, delete and drag in
+     * Live, and an index that went stale between the client reading the chain
+     * and this arriving must fail loudly rather than delete a neighbour. A
+     * class name is the cheapest check that a position still means what the
+     * client thought it did; it can't tell two EQ Eights apart, but it does
+     * stop the worst case. Answered by `deviceDeleted`.
+     */
+    | { id?: number; type: 'deleteDevice'; target: DeviceTarget; className: string }
+    /**
+     * Move one device, via `Song.move_device`, to index `at` in the run `to`
+     * — within the same run or into another, on the same track or not. `at` is
+     * the index the device should have once the move is done. Guarded by
+     * `className` exactly as `deleteDevice` is, for the same reason. Answered
+     * by `deviceMoved` with where it actually landed: Live can refuse a move
+     * (an audio effect ahead of an instrument, say), and the bridge answers
+     * `error` then rather than leaving the device somewhere unreported.
+     */
+    | {
+        id?: number;
+        type: 'moveDevice';
+        target: DeviceTarget;
+        className: string;
+        to: DeviceRun;
+        at: number;
+      }
+    /**
+     * Live's own text for some values of one control, without writing any of
+     * them — `DeviceParameter.str_for_value`, once per value.
+     *
+     * Most of Live's built-in controls are 0–1 on the wire with a curve only
+     * Live knows between that and "350 Hz" or "-3.0 dB". This lets a client
+     * search for the raw value that reads as the number it wants — a few
+     * rounds of bisection — without touching the set, so nothing lands in the
+     * undo history and no automation is overwritten while it looks.
+     *
+     * `p` indexes `ChainDevice.parameters`, as in `DevicePatch.param`. At most
+     * 64 values, each inside the control's `min`…`max`; more, or one outside,
+     * is refused. Answered by the `paramText` event.
+     */
+    | { id?: number; type: 'paramText'; target: DeviceTarget; p: number; values: number[] }
+    /**
+     * Start or stop listening on some probes.
+     *
+     * `on: true` **resets** each probe's window and starts accumulating; while
+     * listening it pushes a `probeReport` about once a second. `on: false`
+     * stops it and sends one last report with `final: true`. A client awaits
+     * the end of a pass by waiting for the final report of every target it
+     * named, so there is no separate reply.
+     *
+     * A listening probe is one window shared by every client, like every other
+     * watch here, and its reports are broadcast: a second client that turns on
+     * a probe already listening restarts the window for everybody. That is the
+     * honest version — the probe hears one signal, and two overlapping windows
+     * would be two devices' worth of work for a question nobody has asked.
+     *
+     * A target that is not a probe is refused with `error`.
+     */
+    | { id?: number; type: 'probeListen'; targets: DeviceTarget[]; on: boolean }
     | { id?: number; type: 'watchPlay'; on: boolean }
     | { id?: number; type: 'watchMeters'; on: boolean }
     /**
@@ -1373,6 +1565,37 @@ declare namespace OpenFlow {
      * `mixerState` against `meterLevels`, for the same reason.
      */
     | { type: 'chainValues'; changes: ChainValueChange[] }
+    /**
+     * A device was inserted. `target` is where Live put it, read back after the
+     * insert rather than assumed from `at`; `className` is its
+     * `Device.class_name`, so the caller can guard a later `deleteDevice` or
+     * `moveDevice` without another read. Every device after it in the run has
+     * shifted up one, which anyone watching the run hears as `chainState`.
+     */
+    | { type: 'deviceInserted'; id?: number; target: DeviceTarget; className: string }
+    /** A device was deleted. `target` is where it was; everything after it shifted down. */
+    | { type: 'deviceDeleted'; id?: number; target: DeviceTarget }
+    /** A device was moved. `target` is where it landed. */
+    | { type: 'deviceMoved'; id?: number; target: DeviceTarget }
+    /** Live's text for each requested value, in the order they were sent. */
+    | { type: 'paramText'; id?: number; target: DeviceTarget; p: number; texts: string[] }
+    /**
+     * Every probe in the set, wherever it sits. Sent to each client as it
+     * connects and broadcast whenever a probe appears, disappears or moves, so
+     * a client never has to walk the set to find one. `name` is `Device.name`,
+     * which the user can change to tell several probes apart.
+     *
+     * A probe is addressed by position like any other device, so a move in
+     * Live changes its `target`: a client holding one re-reads it from here.
+     */
+    | { type: 'probes'; probes: Array<{ target: DeviceTarget; name: string }> }
+    /**
+     * What one probe has heard. Broadcast about once a second while it listens,
+     * then once more with `final: true` when `probeListen { on: false }` stops
+     * it. No `id`: these are a watch's pushes, not replies, and every client
+     * gets them. See `ProbeReport`.
+     */
+    | { type: 'probeReport'; target: DeviceTarget; final: boolean; report: ProbeReport }
     | {
         type: 'songPosition';
         /** First three fields of Live's bars.beats.sixteenths.ticks value. */

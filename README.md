@@ -144,6 +144,11 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `watchScenes` `{ on }` | observe every scene's launch button, so a launch is heard as a gesture rather than inferred from what the tracks did |
 | `selectScene` `{ s }` | select and reveal one exact scene in Live's Session View |
 | `selectTrack` `{ t }` | select one exact track, so Live's device view follows the device-chain footer |
+| `insertDevice` `{ run, name, at? }` | put one of Live's built-in devices into a run. Live 12.4+ |
+| `deleteDevice` `{ target, className }` | delete one device; refused unless the class still matches |
+| `moveDevice` `{ target, className, to, at }` | move one device within or between runs; same guard |
+| `paramText` `{ target, p, values }` | Live's text for up to 64 values of one control, writing nothing |
+| `probeListen` `{ targets, on }` | reset and start, or stop, a probe's listening window |
 | `devices` `{ t }` | read one track's device chain — shells only. A read rather than a watch; see the type's own note |
 | `clipNotes` `{ clips }` | the notes of some clips — a **read**, like `devices` |
 | `identify` `{ client }` | which app this is, for the roster on the device's face |
@@ -160,6 +165,10 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `clipNotes` | `clipNotes` |
 | `setConfigSaved` | `saveSetConfig` |
 | `allowedColorsSaved` | `saveAllowedColors` |
+| `deviceInserted` | `insertDevice` |
+| `deviceDeleted` | `deleteDevice` |
+| `deviceMoved` | `moveDevice` |
+| `paramText` | `paramText` |
 | `pong` | `ping` |
 | `progress` | — streams during `apply` and `move` |
 | `status` | — connection / LOM readiness |
@@ -172,6 +181,8 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `songPosition` | — the Arrangement position crossed a sixteenth |
 | `transportState` | — Live's complete observed control-bar state changed |
 | `deviceState` | — restored or changed set-owned configuration |
+| `probes` | — every probe in the set; on connect and whenever one appears, disappears or moves |
+| `probeReport` | — a listening probe's cumulative report, about once a second, then once with `final: true` |
 | `error` | — terminates any pending request, or is broadcast |
 
 The socket lives at **`/ws`**, not `/`, so Vite can proxy it in dev without colliding
@@ -422,3 +433,52 @@ Undo works exactly as for `move`: the plan is grouped into one Live undo step wh
 allows. The bridge does not refuse the plan when `begin_undo_step` is unavailable; that
 matches `move`, and `scenesKept.undoStep` tells the client, which warns that there is no
 undo.
+
+## Editing a device chain
+
+`insertDevice`, `deleteDevice` and `moveDevice` build a chain the way a person would in
+Live (Live 12.4's `insert_device`, `delete_device` and `Song.move_device`), so master[flow]
+can lay down an EQ, a compressor and a limiter and then set them.
+
+**Each one has a reply, unlike `setDevice`.** A write to a device that exists is heard
+back through the watch; a device that has just been made, removed or moved has a new
+position, and the caller's next message needs it. `deviceInserted` also carries the
+`className`, which is what the next guard asks for.
+
+**Delete and move are guarded by `className`.** Devices are addressed by position, and
+positions shift whenever anyone inserts, deletes or drags in Live. A stale index must fail
+rather than delete the neighbour, so the bridge refuses unless the device at `target` still
+has the class the client named. It can't tell two EQ Eights apart, but it stops the case
+that matters: destroying a device the client never meant to touch.
+
+**Built-in devices only.** Live's API inserts by browser name. Plugins, presets, saved
+racks and Max for Live devices can't be inserted this way; the bridge answers `error`
+rather than picking a near match.
+
+## `paramText`
+
+Most built-in controls are 0–1 on the wire, with a curve only Live knows between that and
+"350 Hz". `paramText` returns `DeviceParameter.str_for_value` for up to 64 raw values at
+once, so a client can bisect for the value that reads as what it wants **without writing
+anything**: no undo entries, no overwritten automation, no audible sweep.
+
+## Probe
+
+A Max for Live device that sits on a track and listens to the signal at its position in
+the chain, before the track's volume and pan. Every number a mastering client acts on is
+worked out there, inside Live, because the samples are there and nowhere else.
+
+- `probes` lists every probe, addressed like any device. It is sent on connect and
+  whenever one appears, disappears or moves.
+- `probeListen { on: true }` resets the window and starts; while listening the probe
+  pushes a **cumulative** `probeReport` about once a second. `on: false` stops it and
+  sends one last report with `final: true`, which is how a client knows a pass is over.
+- One window per probe, shared by every client, with broadcast reports, like the other
+  watches. Turning on a probe that is already listening restarts it for everyone.
+
+`ProbeReport` follows ITU-R BS.1770 / EBU R128: integrated and short-term-max loudness
+(LUFS) and loudness range (LU), each **null until there is enough gated audio** rather
+than a plausible-looking number; 4× oversampled true peak (dBTP), sample peak and RMS
+(dBFS), clipped-sample count, DC offset, L/R correlation, and the 31 ISO 1/3-octave bands
+from 20 Hz to 20 kHz with a mean, a noise-floor (~10th percentile) and a peak (~95th
+percentile) level each. dB fields bottom out at -150, because JSON has no `-Infinity`.
