@@ -184,7 +184,7 @@ Unsolicited events (`status`, `changed`, `deviceState`) carry no id.
 | `deviceState` | — restored or changed set-owned configuration |
 | `probes` | — every probe in the set; on connect and whenever one appears, disappears or moves |
 | `probeReport` | — a listening probe's cumulative report for one `pass`, about once a second, then once with `final: true` |
-| `probePass` | — a pass started or ended (by a stop, a restart, or its probes going away); after its final reports |
+| `probePass` | — a pass started or ended (by a stop, its owner disconnecting, a restart, or its probes going away); after its final reports |
 | `error` | — terminates any pending request, or is broadcast |
 
 The socket lives at **`/ws`**, not `/`, so Vite can proxy it in dev without colliding
@@ -498,9 +498,13 @@ worked out there, inside Live, because the samples are there and nowhere else.
   `pass`, `key` and its current `target`.
 - `probeListen { on: false, pass }` stops a pass **by number**. A stop for a pass that
   isn't current is ignored, so a stale stop can't end someone else's pass.
+- **A pass belongs to the client that started it.** If that client disconnects without
+  stopping it, the bridge stops it for them, exactly as a stop by number would: nobody
+  else asked for those numbers, and a probe left listening for nobody would hold its
+  window until the next restart.
 - **`probePass { pass, on, keys }` is broadcast when a pass starts and when it ends**,
-  whatever ended it: a stop, another client's restart of any of its probes, or every
-  probe in it going away. The final `probeReport`s (`final: true`, one per probe still
+  whatever ended it: a stop, its owner disconnecting, another client's restart of any of
+  its probes, or every probe in it going away. The final `probeReport`s (`final: true`, one per probe still
   present) arrive **before** `probePass { on: false }`, so a client knows its pass is
   over, with the last numbers in hand, when it sees that event with its own `pass`.
 - One window per probe, shared by every client, with broadcast reports, like the other

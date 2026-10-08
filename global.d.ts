@@ -1410,6 +1410,12 @@ declare namespace OpenFlow {
      * pass runs, each probe pushes a `probeReport` about once a second, every
      * one carrying that `pass`.
      *
+     * **The pass belongs to the client that started it.** If that client
+     * disconnects without stopping it, the bridge stops it for them, exactly
+     * as a stop by number would: nobody else asked for those numbers, and a
+     * probe left listening for nobody would hold its window until the next
+     * restart.
+     *
      * A listening probe is one window shared by every client, like every other
      * watch here, and its reports are broadcast. So **another client's start
      * on any probe in your pass ends your pass** — all of it, not just that
@@ -1660,8 +1666,9 @@ declare namespace OpenFlow {
      * A pass started or ended, broadcast to every client.
      *
      * `on: true` when a `probeListen` starts one. `on: false` when it ends,
-     * **whatever ended it**: a stop naming it, another client's restart of any
-     * of its probes, or every probe in it going away. A client knows its pass
+     * **whatever ended it**: a stop naming it, the client that started it
+     * disconnecting, another client's restart of any of its probes, or every
+     * probe in it going away. A client knows its pass
      * is over when it sees `probePass { pass: <its own>, on: false }`, and only
      * then — waiting on final reports alone would hang forever on a pass that
      * a restart or a deleted probe ended.
