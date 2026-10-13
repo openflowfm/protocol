@@ -6,16 +6,17 @@ in `.nvmrc`. Read the README before changing a message.
 
 ## Checks
 
-Run `npm ci` once per worktree. Each check is quick; run each once, in this
-order, after your last edit. CI (`.github/workflows/ci.yml`) runs the same list
-on every push and PR.
+Run `npm ci` once per worktree. A change runs only `npm run build` and
+`npm run typecheck`. The rest runs in a test pass (when asked, or before a PR,
+each check once) and on CI (`.github/workflows/ci.yml`, every push and PR).
+Tests are written to a spec as their own step, not as part of a change.
 
 | Command | What it checks | When to run |
 | --- | --- | --- |
-| `npm run typecheck` | `index.ts` and `global.d.ts` compile (no emit) | Any change to `.ts` / `.d.ts` or tsconfig |
-| `npm run build` | Emits `dist/index.js` and `dist/index.d.ts` | Before `npm test` or `npm pack`; after changing `index.ts` or `tsconfig.build.json` |
-| `npm test` | Type-level and runtime consumer checks against `dist/` through the exports map (`test/`) | Any change to `index.ts`, `package.json` exports, or build config; needs `npm run build` first |
-| `npm pack --dry-run` | The tarball contains only `dist/index.js`, `dist/index.d.ts`, `global.d.ts`, README, LICENSE, `package.json` | Any change to `files`, `exports` or the build |
+| `npm run typecheck` | `index.ts` and `global.d.ts` compile (no emit) | After any change |
+| `npm run build` | Emits `dist/index.js` and `dist/index.d.ts` | After any change; before `npm test` or `npm pack` |
+| `npm test` | Type-level and runtime consumer checks against `dist/` through the exports map (`test/`) | Test pass and CI; needs `npm run build` first |
+| `npm pack --dry-run` | The tarball contains only `dist/index.js`, `dist/index.d.ts`, `global.d.ts`, README, LICENSE, `package.json` | Test pass when `files`, `exports` or the build changed, and CI |
 
 There is no watcher; the build is a single `tsc` run.
 
@@ -24,7 +25,8 @@ There is no watcher; the build is a single `tsc` run.
 - Don't add a second copy of any type. `global.d.ts` is the source of truth;
   `index.ts` only re-exports.
 - Changing what consumers get (types, constants, exports, files) needs a
-  changeset: `npx changeset`, commit the file under `.changeset/`.
+  changeset, once per PR (not per change): `npx changeset`, commit the file
+  under `.changeset/`.
 - Never run `npm publish` or bump `version` by hand. The Release workflow does
   both (see README > Releasing).
 - Versioning below 1.0: breaking change = **minor**, features and fixes =
