@@ -19,7 +19,7 @@ jobs:
       # A step's `if` can't read secrets directly; expose presence only.
       HAS_RENOVATE_DISPATCH_TOKEN: ${{ secrets.RENOVATE_DISPATCH_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
